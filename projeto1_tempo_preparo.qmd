@@ -1,0 +1,423 @@
+---
+title: "**Mudança no tempo de preparo das refeições durante a pandemia de COVID-19**"
+author: "Ilidio do Nascimento Alves Junior (ilidiojunior@id.uff.br)"
+date: "today"
+subtitle: '**Fatores sociodemográficos, econômicos, antropométricos e emocionais associados**'
+date-format: DD/MM/YYYY
+institute: Universidade Federal Fluminense
+lang: pt
+format:
+  revealjs:
+    css: custom.css
+    slide-number: true
+    incremental: false
+    transition: slide
+    background-transition: fade
+    width: 1280
+    height: 720
+    margin: 0.07
+    auto-stretch: false
+    embed-resources: true
+    title-slide-attributes:
+      data-background-image: Capa.png
+      data-background-size: cover
+execute:
+  echo: false
+  warning: false
+  message: false
+resource_files:
+- Capa.png
+- projeto1_tempo_preparo.html
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+# install.packages(c("readxl","dplyr","tidyr","ggplot2","gtsummary","gt","rstatix","DescTools"))
+library(readxl); library(dplyr); library(tidyr); library(ggplot2)
+library(gtsummary); library(gt); library(rstatix); library(DescTools)
+suppressMessages(theme_gtsummary_language("pt", big.mark = ".", decimal.mark = ","))
+set.seed(2026)
+
+# ---------- Dados e variáveis ----------
+arq   <- if (file.exists("Nutrição.xlsx")) "Nutrição.xlsx" else "Nutricao.xlsx"
+Dados <- read_excel(arq)
+resp  <- "Tempo_Preparo_Pandemia"
+niv   <- c("Aumentou", "Não alterou", "Diminuiu")
+cores <- c(Aumentou = "#a8431f", `Não alterou` = "#8c8778", Diminuiu = "#1f6f78")
+
+rotulo <- c(Genero = "Gênero", Raca_cor = "Raça/cor", Regiao = "Região",
+            Isolamento = "Isolamento social", Trabalha = "Trabalha",
+            Renda_familiar = "Renda familiar", Escolaridade = "Escolaridade",
+            Covid = "COVID-19", Consulta_Nutricionista = "Consulta nutricionista",
+            Dificuldade_Financeira = "Dificuldade financeira", cigarro = "Cigarro",
+            Ansiedade = "Ansiedade", Depressao = "Depressão", Insonia = "Insônia",
+            Enxaqueca = "Enxaqueca")
+qual  <- names(rotulo)
+rot_q <- c(Idade = "Idade (anos)", Peso = "Peso (kg)", Altura = "Altura (m)", IMC = "IMC (kg/m²)")
+quant <- names(rot_q)
+
+fmtv <- function(x, d = 3) formatC(x, format = "f", digits = d, decimal.mark = ",")
+fp   <- function(p) ifelse(p < 0.001, "< 0,001", fmtv(p, 3))
+
+# Categorias raras agrupadas (cap. 5: "agrupamento de categorias")
+Dados <- Dados %>%
+  mutate(
+    Genero   = case_when(Genero %in% c("Outro", "Prefiro não responder") ~ "Outro/NR", TRUE ~ Genero),
+    Raca_cor = case_when(Raca_cor %in% c("Amarela", "Indígena", "Outro", "Prefiro não declarar") ~ "Outras/NI",
+                         TRUE ~ Raca_cor),
+    Escolaridade = case_when(
+      Escolaridade %in% c("Analfabeto", "Ensino Fundamental Completo", "Ensino Médio Completo") ~ "Até Médio",
+      Escolaridade == "Não desejo informar" ~ NA_character_,
+      TRUE ~ Escolaridade),
+    Escolaridade   = factor(Escolaridade, levels = c("Até Médio", "Ensino Superior Completo", "Pós-graduação")),
+    Renda_familiar = factor(Renda_familiar,
+                            levels = c("até R$ 1254,00", "entre R$ 1.255 - R$ 8.640", "mais de R$ 8.640")),
+    Tempo_Preparo_Pandemia = factor(Tempo_Preparo_Pandemia, levels = niv)
+  )
+
+n_total <- nrow(Dados)
+pcts <- setNames(as.numeric(prop.table(table(Dados[[resp]]))) * 100, niv)
+
+# ---------- Qualitativas (caps. 4, 5 e 7) ----------
+# 1) valores esperados: se algum esperado < 5, usa-se o teste exato de Fisher
+esperado   <- function(v) suppressWarnings(chisq.test(Dados[[v]], Dados[[resp]])$expected)
+usa_fisher <- sapply(qual, function(v) any(esperado(v) < 5))
+
+# 2) resíduos padronizados (stdres): casas influentes quando |z| > 1,96
+influentes <- bind_rows(lapply(qual, function(v) {
+  z <- suppressWarnings(chisq.test(Dados[[v]], Dados[[resp]]))$stdres
+  d <- as.data.frame(as.table(z), stringsAsFactors = FALSE)
+  names(d) <- c("categoria", "resposta", "z")
+  d$variavel <- v
+  d[abs(d$z) > 1.96, ]
+}))
+
+# 3) p-valor e V de Cramér por variável (para gráfico e textos)
+resumo <- bind_rows(lapply(qual, function(v) {
+  tb <- table(Dados[[v]], Dados[[resp]])
+  p  <- if (usa_fisher[[v]]) fisher.test(tb, simulate.p.value = TRUE, B = 1e5)$p.value
+        else suppressWarnings(chisq.test(tb))$p.value
+  data.frame(variavel = v, p = p, V = cramer_v(tb), fisher = usa_fisher[[v]])
+}))
+
+# Função do capítulo 7 que calcula o coeficiente de Cramér
+cramer_fun <- function(data, variable, by, ...) {
+  tab <- table(data[[variable]], data[[by]])
+  v <- cramer_v(tab)
+  tibble::tibble("**Cramér**" = round(v, 3))
+}
+
+# Casas influentes em negrito (como no capítulo 7: modify_bold por coluna)
+negrito_influentes <- function(tab, vars) {
+  ch <- lapply(1:3, function(j)
+    with(subset(influentes, resposta == niv[j] & variavel %in% vars), paste(variavel, categoria, sep = "|")))
+  chave1 <- ch[[1]]; chave2 <- ch[[2]]; chave3 <- ch[[3]]
+  tab %>%
+    modify_bold(columns = stat_1, rows = paste(variable, label, sep = "|") %in% chave1) %>%
+    modify_bold(columns = stat_2, rows = paste(variable, label, sep = "|") %in% chave2) %>%
+    modify_bold(columns = stat_3, rows = paste(variable, label, sep = "|") %in% chave3)
+}
+
+# Tabela final (modelo do capítulo 7): n (% por linha), valor-p, Cramér e casas influentes
+tab_qual <- function(vars) {
+  set.seed(2026)
+  rot <- setNames(as.list(paste0(rotulo[vars], "<sup>", ifelse(usa_fisher[vars], "F", "Q"), "</sup>")), vars)
+  args_fisher <- if (any(usa_fisher[vars]))
+    list(all_tests("fisher.test") ~ list(simulate.p.value = TRUE, B = 1e5)) else NULL
+    ch <- lapply(1:3, function(j)
+    with(subset(influentes, resposta == niv[j] & variavel %in% vars), paste(variavel, categoria, sep = "|")))
+  chave1 <- ch[[1]]; chave2 <- ch[[2]]; chave3 <- ch[[3]]
+  tbl_summary(data = Dados[, c(resp, vars)], by = Tempo_Preparo_Pandemia, percent = "row",
+              type = all_categorical() ~ "categorical", missing = "no", label = rot) %>%
+    add_p(test.args = args_fisher, pvalue_fun = label_style_pvalue(digits = 3)) %>%
+    add_stat(fns = everything() ~ cramer_fun, location = everything() ~ "label") %>%
+    modify_spanning_header(all_stat_cols() ~ "**Mudança no tempo de preparo (pandemia)**") %>%
+    modify_header(label ~ "**Variáveis**") %>%
+    bold_labels() %>%
+    modify_header(all_stat_cols() ~ "**{level}**<br>{n} ({style_percent(p)}%)") %>%
+    modify_footnote(everything() ~ NA) %>%
+    as_gt() %>%
+    fmt_markdown(columns = label) %>%
+        tab_style(style = cell_text(color = "#5A189A", weight = "bold"),
+              locations = cells_body(columns = p.value, rows = !is.na(p.value) & p.value < 0.05)) %>%
+    tab_style(style = cell_text(color = "#5A189A", weight = "bold"),
+              locations = cells_body(columns = stat_1, rows = paste(variable, label, sep = "|") %in% chave1)) %>%
+    tab_style(style = cell_text(color = "#5A189A", weight = "bold"),
+              locations = cells_body(columns = stat_2, rows = paste(variable, label, sep = "|") %in% chave2)) %>%
+    tab_style(style = cell_text(color = "#5A189A", weight = "bold"),
+              locations = cells_body(columns = stat_3, rows = paste(variable, label, sep = "|") %in% chave3)) %>%
+    tab_source_note(md("<sup>Q</sup> qui-quadrado · <sup>F</sup> exato de Fisher (Monte Carlo) · <span style='color:#5A189A;font-weight:bold'>roxo</span> = valor-p menor que 0,05 ou casa influente (resíduo padronizado maior que 1,96 em módulo) · Cramér = intensidade (0 a 1)")) %>%
+    tab_options(table.font.size = "13px", column_labels.font.size = "15px",
+                data_row.padding = px(2), table.width = pct(100))
+}
+
+# ---------- Quantitativas (caps. 7 e 8) ----------
+shap <- sapply(quant, function(v)                         # normalidade por grupo
+  tapply(Dados[[v]], Dados[[resp]], function(x) shapiro.test(x[!is.na(x)])$p.value))
+lev <- sapply(quant, function(v)                          # Levene (dados não normais)
+  LeveneTest(as.formula(paste(v, "~", resp)), data = Dados)[1, "Pr(>F)"])
+homog <- lev >= 0.05                                      # TRUE: ANOVA usual; FALSE: Welch
+pvals <- sapply(quant, function(v)
+  oneway.test(as.formula(paste(v, "~", resp)), data = Dados, var.equal = homog[[v]])$p.value)
+
+# Comparações múltiplas: Tukey (ANOVA usual) ou Games-Howell (Welch)
+matriz_p <- function(v) {
+  f <- as.formula(paste(v, "~", resp))
+  M <- matrix(1, 3, 3, dimnames = list(niv, niv))
+  if (homog[[v]]) {
+    tk  <- TukeyHSD(aov(f, data = Dados))[[1]]
+    par <- strsplit(rownames(tk), "-"); p <- tk[, "p adj"]
+  } else {
+    gh  <- games_howell_test(Dados[, c(resp, v)], f)
+    par <- Map(function(a, b) c(as.character(a), as.character(b)), gh$group1, gh$group2); p <- gh$p.adj
+  }
+  for (i in seq_along(p)) { M[par[[i]][1], par[[i]][2]] <- p[i]; M[par[[i]][2], par[[i]][1]] <- p[i] }
+  M
+}
+# letras: grupos que compartilham letra não diferem (5%)
+letras_cld <- function(M) {
+  ns <- M >= 0.05; diag(ns) <- TRUE; k <- nrow(ns); cand <- list()
+  for (m in 1:(2^k - 1)) {
+    s <- which(bitwAnd(m, as.integer(2^(0:(k - 1)))) > 0)
+    if (all(ns[s, s])) cand[[length(cand) + 1]] <- s
+  }
+  maximais <- Filter(function(a) !any(sapply(cand, function(b) length(b) > length(a) && all(a %in% b))), cand)
+  maximais <- maximais[order(sapply(maximais, min))]
+  res <- rep("", k)
+  for (i in seq_along(maximais)) res[maximais[[i]]] <- paste0(res[maximais[[i]]], letters[i])
+  res
+}
+txt_letras <- sapply(quant, function(v) {
+  L <- if (pvals[[v]] < 0.05) letras_cld(matriz_p(v)) else rep("a", 3)
+  paste0(niv, " = ", L, collapse = "<br>")
+})
+comparacoes_letras <- function(data, variable, by, ...) {
+  tibble::tibble(`**Comparações Múltiplas**` = txt_letras[[variable]])
+}
+args_owt <- lapply(quant, function(v)
+  as.formula(sprintf("%s ~ list(var.equal = %s)", v, ifelse(homog[[v]], "TRUE", "FALSE"))))
+
+# ---------- Objetos para os textos ----------
+sig_q <- resumo$variavel[resumo$p < 0.05]
+nao_q <- setdiff(qual, sig_q)
+sig_n <- names(pvals)[pvals < 0.05]
+bonf  <- resumo$variavel[resumo$p < 0.05 / (length(qual) + length(quant))]
+med_idade <- tapply(Dados$Idade, Dados[[resp]], mean)
+```
+
+# **INTRODUÇÃO** {.divisor background-color="#1f2a37"}
+
+## **CONTEXTO E PROBLEMA DE PESQUISA**
+
+::: {.box-blue}
+**Contexto:** A pandemia de COVID-19 alterou rotinas de trabalho, estudo e convívio (isolamento social), agravou dificuldades econômicas e ampliou a carga emocional da população.
+:::
+
+::: {.box-orange}
+**Hábitos alimentares:** Mais tempo em casa, menos refeições fora, mudanças na compra, no preparo e no consumo de alimentos.
+:::
+
+::: {.box-green}
+**Problema:** Quem *aumentou*, *diminuiu* ou *não alterou* o tempo dedicado à alimentação e ao preparo das refeições? Que características estão associadas a essa mudança?
+:::
+
+## **VARIÁVEL RESPOSTA E OBJETIVOS**
+
+::: {.box-purple}
+**Foco da análise:** `Tempo_Preparo_Pandemia` — mudança no tempo dedicado à alimentação e ao preparo de refeições (*Aumentou*, *Diminuiu* ou *Não alterou*).
+:::
+
+- **Objetivo principal:** avaliar a associação entre `Tempo_Preparo_Pandemia` e as demais variáveis da base.
+- **Específicos:**
+  - comparar perfis sociodemográficos e econômicos;
+  - avaliar isolamento, COVID-19 e dificuldade financeira;
+  - investigar peso, altura e IMC;
+  - avaliar ansiedade, depressão, insônia e enxaqueca.
+
+# **METODOLOGIA** {.divisor background-color="#1f2a37"}
+
+## **DADOS E VARIÁVEIS**
+
+:::::  {.columns}
+::::  {.column width="50%"}
+::: {.box-blue}
+**Dados:** Questionário online aplicado em 2022 (pandemia), coletado por alunas da pós-graduação em Nutrição da UFF. **n = `r format(n_total, big.mark = ".")`** adultos.
+:::
+
+::: {.box-purple}
+**Resposta:** `Tempo_Preparo_Pandemia` (3 categorias).
+:::
+::::
+::::  {.column width="50%"}
+**Explicativas**
+
+- **15 categóricas:** gênero, raça/cor, região, escolaridade, renda, trabalho, isolamento, COVID-19, dificuldade financeira, nutricionista, cigarro, ansiedade, depressão, insônia, enxaqueca
+- **4 contínuas:** idade, peso, altura, IMC
+- **Aberta:** a base não possui
+::::
+:::::
+
+::: {.box-orange}
+**Preparo:** Categorias raras agrupadas (gênero: Outro + Prefiro não responder; raça/cor: Amarela, Indígena, Outro e Não declarou; escolaridade: até Médio) e foram excluídos 17 "Não desejo informar" na escolaridade.
+:::
+
+## **MÉTODOS ESTATÍSTICOS** {.smaller}
+
+| Método | Finalidade | Condições e suposições |
+|:--|:--|:--|
+| Qui-quadrado de independência | Associação entre a resposta e cada variável qualitativa | Observações independentes; esperados ≥ 5 em todas as casas |
+| Exato de Fisher (Monte Carlo) | Mesma pergunta quando algum esperado < 5 | Observações independentes; margens fixas; simulação em tabelas r×c |
+| V de Cramér (`rstatix`) | Intensidade da associação (0 a 1) | Calculado sobre a tabela de contingência |
+| Resíduos padronizados (`stdres`) | Casas influentes: z > 1,96 em módulo | Aproximadamente N(0,1) sob independência |
+| Shapiro-Wilk e Levene (`DescTools`) | Normalidade e homogeneidade de variâncias | Aplicados em cada grupo da resposta |
+| ANOVA usual ou de Welch (`oneway.test`) | Comparar médias entre os 3 grupos | Independência; normalidade (TCL com n grande); variâncias iguais (usual) ou diferentes (Welch) |
+| Tukey / Games-Howell | Comparações múltiplas | Feitas após ANOVA / Welch significativa |
+
+::: {.box-blue}
+**nível de significância adotado (α = 5%)**
+:::
+::: {.box-blue}
+**Pacotes do R:** readxl, dplyr, tidyr, ggplot2, gtsummary, gt, rstatix, DescTools
+:::
+
+# **RESULTADOS** {.divisor background-color="#1f2a37"}
+
+## **VARIÁVEL RESPOSTA**
+
+```{r}
+#| fig-width: 9
+#| fig-height: 4.6
+#| fig-align: center
+dist <- Dados %>% count(Tempo_Preparo_Pandemia) %>% mutate(pct = 100 * n / sum(n))
+ggplot(dist, aes(Tempo_Preparo_Pandemia, pct, fill = Tempo_Preparo_Pandemia)) +
+  geom_col(show.legend = FALSE, width = 0.6) +
+  geom_text(aes(label = paste0(format(n, big.mark = "."), " (", fmtv(pct, 1), "%)")), vjust = -0.4, size = 6) +
+  scale_fill_manual(values = cores) + scale_y_continuous(limits = c(0, 70)) +
+  labs(x = NULL, y = "% dos participantes") + theme_minimal(base_size = 18)
+```
+
+## **QUALITATIVAS (1/3): SOCIODEMOGRÁFICAS** {.scrollable}
+
+```{r}
+tab_qual(c("Genero", "Raca_cor", "Regiao", "Escolaridade", "Renda_familiar"))
+```
+
+## **QUALITATIVAS (2/3): PANDEMIA, TRABALHO E HÁBITOS DE SAÚDE** {.scrollable}
+
+```{r}
+tab_qual(c("Isolamento", "Trabalha", "Covid", "Dificuldade_Financeira", "Consulta_Nutricionista", "cigarro"))
+```
+
+## **QUALITATIVAS (3/3): SAÚDE EMOCIONAL** {.scrollable}
+
+```{r}
+tab_qual(c("Ansiedade", "Depressao", "Insonia", "Enxaqueca"))
+```
+
+## **INTENSIDADE DAS ASSOCIAÇÕES (V DE CRAMÉR)**
+
+:::::  {.columns}
+::::  {.column width="62%"}
+```{r}
+#| fig-width: 7
+#| fig-height: 5.4
+resumo %>%
+  mutate(var = factor(rotulo[variavel], levels = rotulo[variavel][order(V)]),
+         sig = ifelse(p < 0.05, "p < 0,05", "p ≥ 0,05")) %>%
+  ggplot(aes(V, var, fill = sig)) + geom_col() +
+  geom_text(aes(label = fmtv(V)), hjust = -0.1, size = 4) +
+  scale_fill_manual(values = c("p < 0,05" = "#5A189A", "p ≥ 0,05" = "#b9b4a6")) +
+  xlim(0, max(resumo$V) * 1.2) + labs(x = "V de Cramér", y = NULL, fill = NULL) +
+  theme_minimal(base_size = 14) + theme(legend.position = "bottom")
+```
+::::
+::::  {.column width="38%"}
+::: {.box-orange}
+**`r length(sig_q)` de `r length(qual)`** variáveis qualitativas se associaram à resposta (p < 0,05), mas com intensidade **baixa** (V máx. = `r fmtv(max(resumo$V))`).
+:::
+::::
+:::::
+
+## **QUANTITATIVAS: DIAGNÓSTICOS**
+
+```{r}
+data.frame(
+  Variável = unname(rot_q),
+  `Shapiro-Wilk, p (Aumentou / Não alterou / Diminuiu)` = unname(apply(shap, 2, function(p) paste(fp(p), collapse = " / "))),
+  `Levene, p` = unname(fp(lev)),
+  `Teste de médias` = unname(ifelse(homog, "ANOVA usual", "ANOVA de Welch")),
+  check.names = FALSE) %>%
+  gt() %>% tab_options(table.font.size = "20px", table.width = pct(100))
+```
+
+::: {.box-blue}
+Normalidade rejeitada nos grupos, mas com n grande vale o TCL. Variâncias avaliadas por **Levene** (dados não normais): se diferentes, **ANOVA de Welch**.
+:::
+
+## **QUANTITATIVAS: TABELA FINAL**
+
+```{r}
+tbl_summary(data = Dados[, c(resp, quant)], by = Tempo_Preparo_Pandemia,
+            type = everything() ~ "continuous", missing = "no",
+            statistic = all_continuous() ~ "{mean} ({sd})", digits = all_continuous() ~ 2,
+            label = setNames(as.list(paste0(rot_q, "<sup>", ifelse(homog, "A", "W"), "</sup>")), quant)) %>%
+  add_p(test = everything() ~ "oneway.test", test.args = args_owt,
+        pvalue_fun = label_style_pvalue(digits = 3)) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Mudança no tempo de preparo (pandemia)**") %>%
+  modify_header(label ~ "**Variáveis**") %>%
+  bold_labels() %>%
+  modify_header(all_stat_cols() ~ "**{level}**<br>{n} ({style_percent(p)}%)") %>%
+  modify_footnote(everything() ~ NA) %>%
+  add_stat(fns = everything() ~ comparacoes_letras, location = everything() ~ "label") %>%
+  as_gt() %>%
+  fmt_markdown(columns = c(label, `**Comparações Múltiplas**`)) %>%
+    tab_style(style = cell_text(color = "#5A189A", weight = "bold"),
+            locations = cells_body(columns = p.value, rows = !is.na(p.value) & p.value < 0.05)) %>%
+  tab_source_note(md("Média (desvio padrão) · <sup>A</sup> ANOVA usual · <sup>W</sup> ANOVA de Welch · letras iguais = sem diferença (Tukey ou Games-Howell, 5%) · <span style='color:#5A189A;font-weight:bold'>roxo</span> = valor-p menor que 0,05")) %>%
+  tab_options(table.font.size = "20px", heading.title.font.size = "26px",
+              column_labels.font.size = "22px", table.width = pct(100))
+```
+
+## **IDADE E ANTROPOMETRIA POR GRUPO**
+
+```{r}
+#| fig-width: 11
+#| fig-height: 4.6
+#| fig-align: center
+Dados %>% select(all_of(c(resp, quant))) %>%
+  pivot_longer(-all_of(resp), names_to = "var", values_to = "valor") %>%
+  mutate(var = factor(var, levels = quant)) %>%
+  ggplot(aes(.data[[resp]], valor, fill = .data[[resp]])) +
+  geom_boxplot(show.legend = FALSE) + facet_wrap(~ var, scales = "free_y", nrow = 1) +
+  scale_fill_manual(values = cores) + labs(x = NULL, y = NULL) + theme_minimal(base_size = 15) + theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+## **PRINCIPAIS RESULTADOS**
+
+::: {.box-blue}
+**Associadas (p < 0,05):** `r paste(rotulo[sig_q], collapse = ", ")`; e, entre as quantitativas, `r paste(rot_q[sig_n], collapse = ", ")`.
+:::
+
+::: {.box-orange}
+**Sem evidência de associação:** `r paste(rotulo[nao_q], collapse = ", ")`, `r paste(rot_q[setdiff(quant, sig_n)], collapse = ", ")`.
+:::
+
+- **Proporção maior de aumento:** (casas em roxo) isolamento social, renda alta, pós-graduação e região Sul.
+- **Proporção maior de diminuição:** ansiedade, depressão, insônia, dificuldade financeira, renda baixa, até ensino médio e Nordeste.
+- **Idade:** quem diminuiu é mais jovem (média de `r fmtv(med_idade[["Diminuiu"]], 1)` contra `r fmtv(med_idade[["Aumentou"]], 1)` e `r fmtv(med_idade[["Não alterou"]], 1)` anos).
+- **Gênero:** mulheres aumentaram mais (57,4% contra 50,7%); homens, mais "não alterou" (38,7% contra 30,0%).
+
+# **CONCLUSÃO** {.divisor background-color="#1f2a37"}
+
+## **CONCLUSÃO**
+
+::: {.box-purple}
+**Objetivo:** avaliar a associação entre `Tempo_Preparo_Pandemia` e as demais variáveis. Entre `r format(n_total, big.mark = ".")` adultos, **`r fmtv(pcts[["Aumentou"]], 1)`%** aumentaram o tempo de preparo e **`r fmtv(pcts[["Diminuiu"]], 1)`%** diminuíram.
+:::
+
+- **`r length(sig_q) + length(sig_n)` de `r length(qual) + length(quant)`** variáveis se associaram à resposta (`r paste(c(rotulo[sig_q], rot_q[sig_n]), collapse = ", ")`); peso, altura e IMC não. Os efeitos são **pequenos** (V máx. = `r fmtv(max(resumo$V))`).
+- **Leitura possível:** isolamento social, renda e escolaridade maiores se associam a mais aumento do tempo de preparo (talvez por mais tempo em casa e mais recursos); ansiedade, depressão, insônia, dificuldade financeira e menor renda se associam a uma proporção maior de redução. São hipóteses, não causas.
+- **Cuidados:** com Bonferroni (19 testes, α = 0,0026) `r if (length(setdiff(sig_q, bonf)) > 0) paste(rotulo[setdiff(sig_q, bonf)], collapse = " e ") else "todas as associações se mantêm"` `r if (length(setdiff(sig_q, bonf)) > 0) "deixam de ser significativas"`; amostra online (74% mulheres, 45% pós-graduados), autorrelato e corte transversal.
+- **Limites:** cada variável foi analisada isoladamente, então fatores correlacionados podem se sobrepor. Um modelo multivariado seria o próximo passo.

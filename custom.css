@@ -1,0 +1,41 @@
+/* custom.css — compatível com o template do curso (classes box-blue, box-green, box-orange, box-purple) */
+.reveal { font-size: 30px; }
+.reveal h1, .reveal h2, .reveal h3 { font-family: Georgia, "Times New Roman", serif; color: #1f2a37; }
+.reveal h2 { font-size: 1.45em; margin-bottom: 0.4em; }
+.reveal .slides section { text-align: left; }
+.reveal section.title-slide { text-align: center; }
+.reveal section.title-slide h1 { font-size: 1.6em; }
+
+/* slides de capítulo */
+.divisor { color: #ffffff !important; font-size: 2.0em !important; text-align: center !important; }
+
+/* caixas */
+.box-blue, .box-green, .box-orange, .box-purple {
+  padding: 0.5em 0.9em; margin: 0.4em 0; border-radius: 10px; border-left: 8px solid;
+}
+.box-blue   { background: #e6eef7; border-color: #1f4e79; }
+.box-green  { background: #e5f2e9; border-color: #2e7d4f; }
+.box-orange { background: #fdeede; border-color: #d9822b; }
+.box-purple { background: #eee8f6; border-color: #6a4c9c; }
+
+/* tabelas */
+.reveal table { font-size: 0.7em; }
+.reveal .gt_table { margin: 0 auto; }
+
+#title-slide {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-radius: 18px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  width: 76% !important;
+  left: 0 !important;
+  right: 0 !important;
+  margin: 0 auto !important;
+  padding: 30px 40px !important;
+  box-sizing: border-box;
+  color: #1f2a37;
+}
+#title-slide h1.title { font-size: 1.3em !important; margin-bottom: 0.3em; }
+#title-slide .subtitle { font-size: 0.85em !important; }
+#title-slide .quarto-title-authors,
+#title-slide .date { font-size: 0.8em !important; }
+#title-slide p, #title-slide div { color: #1f2a37 !important; opacity: 1 !important; }
